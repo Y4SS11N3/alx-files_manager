@@ -1,20 +1,25 @@
 import Queue from 'bull';
+import { ObjectId } from 'mongodb';
 import imageThumbnail from 'image-thumbnail';
-import { ObjectID } from 'mongodb';
 import fs from 'fs';
 import dbClient from './utils/db';
 
-const fileQueue = new Queue('fileQueue');
+const fileQueue = new Queue('fileQueue', {
+  redis: {
+    host: '127.0.0.1',
+    port: 6379,
+  },
+});
 
-const generateThumbnail = async (path, options) => {
+async function generateThumbnail(filePath, width) {
   try {
-    const thumbnail = await imageThumbnail(path, options);
-    const thumbnailPath = `${path}_${options.width}`;
+    const thumbnail = await imageThumbnail(filePath, { width });
+    const thumbnailPath = `${filePath}_${width}`;
     await fs.promises.writeFile(thumbnailPath, thumbnail);
   } catch (error) {
     console.error(`Error generating thumbnail: ${error}`);
   }
-};
+}
 
 fileQueue.process(async (job) => {
   const { userId, fileId } = job.data;
@@ -27,20 +32,20 @@ fileQueue.process(async (job) => {
     throw new Error('Missing userId');
   }
 
-  const filesCollection = dbClient.db.collection('files');
-  const file = await filesCollection.findOne({
-    _id: ObjectID(fileId),
-    userId: ObjectID(userId),
+  const file = await dbClient.db.collection('files').findOne({
+    _id: ObjectId(fileId),
+    userId: ObjectId(userId),
   });
 
   if (!file) {
     throw new Error('File not found');
   }
 
-  const sizes = [500, 250, 100];
-  const thumbnailPromises = sizes.map((size) =>
-    generateThumbnail(file.localPath, { width: size })
-  );
+  const filePath = file.localPath;
 
-  await Promise.all(thumbnailPromises);
+  await generateThumbnail(filePath, 500);
+  await generateThumbnail(filePath, 250);
+  await generateThumbnail(filePath, 100);
 });
+
+console.log('Worker is running');
