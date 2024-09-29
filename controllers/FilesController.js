@@ -7,7 +7,34 @@ import Queue from 'bull';
 import dbClient from '../utils/db';
 import redisClient from '../utils/redis';
 
+
+
 const FOLDER_PATH = process.env.FOLDER_PATH || '/tmp/files_manager';
+const ROOT_FOLDER_ID = 0;
+const MAX_FILES_PER_PAGE = 20;
+
+const isValidId = (id) => {
+  const size = 24;
+  let i = 0;
+  const charRanges = [
+    [48, 57], // 0 - 9
+    [97, 102], // a - f
+    [65, 70], // A - F
+  ];
+  if (typeof id !== 'string' || id.length !== size) {
+    return false;
+  }
+  while (i < size) {
+    const c = id[i];
+    const code = c.charCodeAt(0);
+    if (!charRanges.some((range) => code >= range[0] && code <= range[1])) {
+      return false;
+    }
+    i += 1;
+  }
+  return true;
+};
+
 
 const fileQueue = new Queue('fileQueue', {
   redis: {
@@ -80,13 +107,14 @@ class FilesController {
     const userId = await redisClient.get(`auth_${token}`);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const fileId = req.params.id;
-    if (!ObjectId.isValid(fileId)) return res.status(404).json({ error: 'Not found' });
+    const id = req.params ? req.params.id : null;
+    if (!id || !isValidId(id)) return res.status(404).json({ error: 'Not found' });
 
-    const file = await dbClient.db.collection('files').findOne({
-      _id: ObjectId(fileId),
-      userId: ObjectId(userId),
-    });
+    const file = await (await dbClient.db.collection('files'))
+      .findOne({
+        _id: new ObjectId(id),
+        userId: new ObjectId(userId),
+      });
 
     if (!file) return res.status(404).json({ error: 'Not found' });
 
@@ -96,7 +124,7 @@ class FilesController {
       name: file.name,
       type: file.type,
       isPublic: file.isPublic,
-      parentId: file.parentId === 0 ? 0 : file.parentId.toString(),
+      parentId: file.parentId === ROOT_FOLDER_ID.toString() ? 0 : file.parentId.toString(),
     });
   }
 
@@ -106,23 +134,24 @@ class FilesController {
     const userId = await redisClient.get(`auth_${token}`);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const parentId = req.query.parentId || '0';
-    const page = parseInt(req.query.page || '0', 10);
-    const pageSize = 20;
+    const parentId = req.query.parentId || ROOT_FOLDER_ID.toString();
+    const page = /\d+/.test((req.query.page || '').toString())
+      ? Number.parseInt(req.query.page, 10)
+      : 0;
 
-    const query = { userId: ObjectId(userId) };
-    if (parentId !== '0') {
-      if (!ObjectId.isValid(parentId)) return res.status(200).json([]);
-      query.parentId = ObjectId(parentId);
-    } else {
-      query.parentId = 0;
-    }
+    const filesFilter = {
+      userId: new ObjectId(userId),
+      parentId: parentId === ROOT_FOLDER_ID.toString()
+        ? parentId
+        : new ObjectId(isValidId(parentId) ? parentId : null),
+    };
 
-    const files = await dbClient.db.collection('files')
+    const files = await (await (await dbClient.db.collection('files'))
       .aggregate([
-        { $match: query },
-        { $skip: page * pageSize },
-        { $limit: pageSize },
+        { $match: filesFilter },
+        { $sort: { _id: -1 } },
+        { $skip: page * MAX_FILES_PER_PAGE },
+        { $limit: MAX_FILES_PER_PAGE },
         {
           $project: {
             _id: 0,
@@ -132,12 +161,11 @@ class FilesController {
             type: 1,
             isPublic: 1,
             parentId: {
-              $cond: { if: { $eq: ['$parentId', 0] }, then: 0, else: { $toString: '$parentId' } },
+              $cond: { if: { $eq: ['$parentId', '0'] }, then: 0, else: { $toString: '$parentId' } },
             },
           },
         },
-      ])
-      .toArray();
+      ])).toArray();
 
     return res.status(200).json(files);
   }
