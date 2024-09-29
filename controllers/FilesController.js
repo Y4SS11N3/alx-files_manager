@@ -96,6 +96,7 @@ class FilesController {
 
     const file = await dbClient.db.collection('files').findOne({
       _id: ObjectId(fileId),
+      userId: ObjectId(userId),
     });
 
     if (!file) {
@@ -124,36 +125,40 @@ class FilesController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const parentId = req.query.parentId === undefined ? '0' : req.query.parentId;
+    const parentId = req.query.parentId || '0';
     const page = parseInt(req.query.page, 10) || 0;
     const pageSize = 20;
 
-    const matchStage = { userId: ObjectId(userId) };
+    const query = { userId: ObjectId(userId) };
 
-    if (parentId === '0') {
-      matchStage.parentId = 0;
-    } else if (ObjectId.isValid(parentId)) {
-      matchStage.parentId = ObjectId(parentId);
+    if (parentId !== '0') {
+      if (!ObjectId.isValid(parentId)) {
+        return res.status(400).json({ error: 'Invalid parentId' });
+      }
+      query.parentId = ObjectId(parentId);
+    } else {
+      query.parentId = 0;
     }
 
-    const pipeline = [
-      { $match: matchStage },
-      { $skip: page * pageSize },
-      { $limit: pageSize },
-      {
-        $project: {
-          id: '$_id',
-          userId: 1,
-          name: 1,
-          type: 1,
-          isPublic: 1,
-          parentId: 1,
-          _id: 0,
+    const files = await dbClient.db
+      .collection('files')
+      .aggregate([
+        { $match: query },
+        { $skip: page * pageSize },
+        { $limit: pageSize },
+        {
+          $project: {
+            _id: 0,
+            id: '$_id',
+            userId: 1,
+            name: 1,
+            type: 1,
+            isPublic: 1,
+            parentId: 1,
+          },
         },
-      },
-    ];
-
-    const files = await dbClient.db.collection('files').aggregate(pipeline).toArray();
+      ])
+      .toArray();
 
     return res.status(200).json(files);
   }
