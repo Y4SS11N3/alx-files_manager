@@ -11,6 +11,13 @@ const fileQueue = new Queue('fileQueue', {
   },
 });
 
+const userQueue = new Queue('userQueue', {
+  redis: {
+    host: '127.0.0.1',
+    port: 6379,
+  },
+});
+
 async function generateThumbnail(filePath, width) {
   try {
     const thumbnail = await imageThumbnail(filePath, { width });
@@ -48,4 +55,20 @@ fileQueue.process(async (job) => {
   await generateThumbnail(filePath, 100);
 });
 
+userQueue.process(async (job) => {
+    const { userId } = job.data;
+  
+    if (!userId) {
+      throw new Error('Missing userId');
+    }
+  
+    const user = await dbClient.db.collection('users').findOne({ _id: ObjectId(userId) });
+  
+    if (!user) {
+      throw new Error('User not found');
+    }
+  
+    console.log(`Welcome ${user.email}!`);
+});
+  
 console.log('Worker is running');

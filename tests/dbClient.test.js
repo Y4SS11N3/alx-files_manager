@@ -1,34 +1,29 @@
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { expect } from 'chai';
+import sinon from 'sinon';
 import dbClient from '../utils/db';
 
 describe('DB Client', () => {
-  let mongoServer;
+  let sandbox;
 
-  beforeAll(async () => {
-    mongoServer = await MongoMemoryServer.create();
-    const mongoUri = mongoServer.getUri();
-    process.env.DB_HOST = new URL(mongoUri).hostname;
-    process.env.DB_PORT = new URL(mongoUri).port;
-    process.env.DB_DATABASE = 'files_manager_test';
-    await dbClient.connect();
+  beforeEach(() => {
+    sandbox = sinon.createSandbox();
   });
 
-  afterAll(async () => {
-    await dbClient.client.close();
-    await mongoServer.stop();
+  afterEach(() => {
+    sandbox.restore();
   });
 
-  it('should connect to the database', async () => {
-    expect(dbClient.isAlive()).toBe(true);
+  it('should connect to MongoDB', () => {
+    expect(dbClient.isAlive()).to.be.true;
   });
 
   it('should return the number of users', async () => {
     const usersCount = await dbClient.nbUsers();
-    expect(typeof usersCount).toBe('number');
+    expect(usersCount).to.be.a('number');
   });
 
   it('should return the number of files', async () => {
     const filesCount = await dbClient.nbFiles();
-    expect(typeof filesCount).toBe('number');
+    expect(filesCount).to.be.a('number');
   });
 });
