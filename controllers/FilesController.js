@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ObjectId } from 'mongodb';
 import fs from 'fs';
 import path from 'path';
-import mime from 'mime-types';
+// import mime from 'mime-types';
 import dbClient from '../utils/db';
 import redisClient from '../utils/redis';
 
@@ -21,7 +21,9 @@ class FilesController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { name, type, parentId = 0, isPublic = false, data } = req.body;
+    const {
+      name, type, parentId = 0, isPublic = false, data,
+    } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Missing name' });
@@ -79,27 +81,27 @@ class FilesController {
     if (!token) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-  
+
     const key = `auth_${token}`;
     const userId = await redisClient.get(key);
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-  
+
     const fileId = req.params.id;
-    
+
     if (!ObjectId.isValid(fileId)) {
       return res.status(404).json({ error: 'Not found' });
     }
-  
+
     const file = await dbClient.db.collection('files').findOne({
-      _id: ObjectId(fileId)
+      _id: ObjectId(fileId),
     });
-  
+
     if (!file) {
       return res.status(404).json({ error: 'Not found' });
     }
-  
+
     return res.status(200).json({
       id: file._id,
       userId: file.userId,
@@ -115,25 +117,25 @@ class FilesController {
     if (!token) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-  
+
     const key = `auth_${token}`;
     const userId = await redisClient.get(key);
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-  
+
     const parentId = req.query.parentId === undefined ? '0' : req.query.parentId;
     const page = parseInt(req.query.page, 10) || 0;
     const pageSize = 20;
-  
-    let matchStage = { userId: ObjectId(userId) };
-  
+
+    const matchStage = { userId: ObjectId(userId) };
+
     if (parentId === '0') {
       matchStage.parentId = 0;
     } else if (ObjectId.isValid(parentId)) {
       matchStage.parentId = ObjectId(parentId);
     }
-  
+
     const pipeline = [
       { $match: matchStage },
       { $skip: page * pageSize },
@@ -150,9 +152,9 @@ class FilesController {
         },
       },
     ];
-  
+
     const files = await dbClient.db.collection('files').aggregate(pipeline).toArray();
-  
+
     return res.status(200).json(files);
   }
 
