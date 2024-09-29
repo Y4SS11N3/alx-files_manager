@@ -7,6 +7,8 @@ import dbClient from '../utils/db';
 import redisClient from '../utils/redis';
 
 const FOLDER_PATH = process.env.FOLDER_PATH || '/tmp/files_manager';
+const NULL_ID = '000000000000000000000000';
+const ROOT_FOLDER_ID = '0';
 
 class FilesController {
   static async postUpload(req, res) {
@@ -87,14 +89,10 @@ class FilesController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const fileId = req.params.id;
-    if (!ObjectId.isValid(fileId)) {
-      return res.status(404).json({ error: 'Not found' });
-    }
-
+    const fileId = req.params.id || NULL_ID;
     const file = await dbClient.db.collection('files').findOne({
-      _id: ObjectId(fileId),
-      userId: ObjectId(userId),
+      _id: ObjectId.isValid(fileId) ? ObjectId(fileId) : NULL_ID,
+      userId: ObjectId.isValid(userId) ? ObjectId(userId) : NULL_ID,
     });
 
     if (!file) {
@@ -107,7 +105,7 @@ class FilesController {
       name: file.name,
       type: file.type,
       isPublic: file.isPublic,
-      parentId: file.parentId === 0 ? 0 : file.parentId.toString(),
+      parentId: file.parentId === ROOT_FOLDER_ID ? 0 : file.parentId.toString(),
     });
   }
 
@@ -122,24 +120,28 @@ class FilesController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const parentId = req.query.parentId !== undefined ? req.query.parentId : '0';
-    const page = parseInt(req.query.page || '0', 10);
+    const parentId = req.query.parentId || ROOT_FOLDER_ID;
+    const page = /^\d+$/.test(req.query.page) ? parseInt(req.query.page, 10) : 0;
     const pageSize = 20;
 
-    const query = { userId: ObjectId(userId) };
-
-    if (parentId === '0') {
-      query.parentId = 0;
+    let queryParentId;
+    if (parentId === ROOT_FOLDER_ID) {
+      queryParentId = ROOT_FOLDER_ID;
     } else if (ObjectId.isValid(parentId)) {
-      query.parentId = ObjectId(parentId);
+      queryParentId = ObjectId(parentId);
     } else {
-      return res.status(200).json([]);
+      queryParentId = NULL_ID;
     }
 
-    const files = await dbClient.db
-      .collection('files')
+    const query = {
+      userId: ObjectId(userId),
+      parentId: queryParentId,
+    };
+
+    const files = await dbClient.db.collection('files')
       .aggregate([
         { $match: query },
+        { $sort: { _id: -1 } },
         { $skip: page * pageSize },
         { $limit: pageSize },
         {
@@ -151,11 +153,7 @@ class FilesController {
             type: 1,
             isPublic: 1,
             parentId: {
-              $cond: {
-                if: { $eq: ['$parentId', 0] },
-                then: 0,
-                else: { $toString: '$parentId' },
-              },
+              $cond: { if: { $eq: ['$parentId', ROOT_FOLDER_ID] }, then: 0, else: { $toString: '$parentId' } },
             },
           },
         },
