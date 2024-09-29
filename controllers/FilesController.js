@@ -103,7 +103,6 @@ class FilesController {
   static async getIndex(req, res) {
     const token = req.header('X-Token');
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
-
     const userId = await redisClient.get(`auth_${token}`);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -116,7 +115,7 @@ class FilesController {
       if (!ObjectId.isValid(parentId)) return res.status(200).json([]);
       query.parentId = ObjectId(parentId);
     } else {
-      query.parentId = '0';
+      query.parentId = 0;
     }
 
     const files = await dbClient.db.collection('files')
@@ -133,7 +132,7 @@ class FilesController {
             type: 1,
             isPublic: 1,
             parentId: {
-              $cond: { if: { $eq: ['$parentId', '0'] }, then: 0, else: { $toString: '$parentId' } },
+              $cond: { if: { $eq: ['$parentId', 0] }, then: 0, else: { $toString: '$parentId' } },
             },
           },
         },
