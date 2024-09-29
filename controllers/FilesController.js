@@ -7,8 +7,6 @@ import dbClient from '../utils/db';
 import redisClient from '../utils/redis';
 
 const FOLDER_PATH = process.env.FOLDER_PATH || '/tmp/files_manager';
-const NULL_ID = '000000000000000000000000';
-const ROOT_FOLDER_ID = '0';
 
 class FilesController {
   static async postUpload(req, res) {
@@ -80,24 +78,20 @@ class FilesController {
 
   static async getShow(req, res) {
     const token = req.header('X-Token');
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
     const userId = await redisClient.get(`auth_${token}`);
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const fileId = req.params.id || NULL_ID;
+    const fileId = req.params.id;
+    if (!ObjectId.isValid(fileId)) return res.status(404).json({ error: 'Not found' });
+
     const file = await dbClient.db.collection('files').findOne({
-      _id: ObjectId.isValid(fileId) ? ObjectId(fileId) : NULL_ID,
-      userId: ObjectId.isValid(userId) ? ObjectId(userId) : NULL_ID,
+      _id: ObjectId(fileId),
+      userId: ObjectId(userId),
     });
 
-    if (!file) {
-      return res.status(404).json({ error: 'Not found' });
-    }
+    if (!file) return res.status(404).json({ error: 'Not found' });
 
     return res.status(200).json({
       id: file._id.toString(),
@@ -105,43 +99,32 @@ class FilesController {
       name: file.name,
       type: file.type,
       isPublic: file.isPublic,
-      parentId: file.parentId === ROOT_FOLDER_ID ? 0 : file.parentId.toString(),
+      parentId: file.parentId === 0 ? 0 : file.parentId.toString(),
     });
   }
 
   static async getIndex(req, res) {
     const token = req.header('X-Token');
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
     const userId = await redisClient.get(`auth_${token}`);
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const parentId = req.query.parentId || ROOT_FOLDER_ID;
-    const page = /^\d+$/.test(req.query.page) ? parseInt(req.query.page, 10) : 0;
+    const parentId = req.query.parentId || '0';
+    const page = parseInt(req.query.page || '0', 10);
     const pageSize = 20;
 
-    let queryParentId;
-    if (parentId === ROOT_FOLDER_ID) {
-      queryParentId = ROOT_FOLDER_ID;
-    } else if (ObjectId.isValid(parentId)) {
-      queryParentId = ObjectId(parentId);
+    const query = { userId: ObjectId(userId) };
+    if (parentId !== '0') {
+      if (!ObjectId.isValid(parentId)) return res.status(200).json([]);
+      query.parentId = ObjectId(parentId);
     } else {
-      queryParentId = NULL_ID;
+      query.parentId = '0';
     }
-
-    const query = {
-      userId: ObjectId(userId),
-      parentId: queryParentId,
-    };
 
     const files = await dbClient.db.collection('files')
       .aggregate([
         { $match: query },
-        { $sort: { _id: -1 } },
         { $skip: page * pageSize },
         { $limit: pageSize },
         {
@@ -153,7 +136,7 @@ class FilesController {
             type: 1,
             isPublic: 1,
             parentId: {
-              $cond: { if: { $eq: ['$parentId', ROOT_FOLDER_ID] }, then: 0, else: { $toString: '$parentId' } },
+              $cond: { if: { $eq: ['$parentId', '0'] }, then: 0, else: { $toString: '$parentId' } },
             },
           },
         },
