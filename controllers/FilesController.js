@@ -82,14 +82,12 @@ class FilesController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const key = `auth_${token}`;
-    const userId = await redisClient.get(key);
+    const userId = await redisClient.get(`auth_${token}`);
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const fileId = req.params.id;
-
     if (!ObjectId.isValid(fileId)) {
       return res.status(404).json({ error: 'Not found' });
     }
@@ -104,12 +102,12 @@ class FilesController {
     }
 
     return res.status(200).json({
-      id: file._id,
-      userId: file.userId,
+      id: file._id.toString(),
+      userId: file.userId.toString(),
       name: file.name,
       type: file.type,
       isPublic: file.isPublic,
-      parentId: file.parentId,
+      parentId: file.parentId === 0 ? 0 : file.parentId.toString(),
     });
   }
 
@@ -119,25 +117,23 @@ class FilesController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const key = `auth_${token}`;
-    const userId = await redisClient.get(key);
+    const userId = await redisClient.get(`auth_${token}`);
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const parentId = req.query.parentId || '0';
-    const page = parseInt(req.query.page, 10) || 0;
+    const parentId = req.query.parentId !== undefined ? req.query.parentId : '0';
+    const page = parseInt(req.query.page || '0', 10);
     const pageSize = 20;
 
     const query = { userId: ObjectId(userId) };
 
-    if (parentId !== '0') {
-      if (!ObjectId.isValid(parentId)) {
-        return res.status(400).json({ error: 'Invalid parentId' });
-      }
+    if (parentId === '0') {
+      query.parentId = 0;
+    } else if (ObjectId.isValid(parentId)) {
       query.parentId = ObjectId(parentId);
     } else {
-      query.parentId = 0;
+      return res.status(200).json([]);
     }
 
     const files = await dbClient.db
@@ -149,12 +145,18 @@ class FilesController {
         {
           $project: {
             _id: 0,
-            id: '$_id',
-            userId: 1,
+            id: { $toString: '$_id' },
+            userId: { $toString: '$userId' },
             name: 1,
             type: 1,
             isPublic: 1,
-            parentId: 1,
+            parentId: {
+              $cond: {
+                if: { $eq: ['$parentId', 0] },
+                then: 0,
+                else: { $toString: '$parentId' },
+              },
+            },
           },
         },
       ])
